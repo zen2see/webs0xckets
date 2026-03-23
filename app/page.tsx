@@ -86,7 +86,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     // Connect to the SEPARATE WebSocket server on port 8081
-    const socket = new WebSocket('ws://localhost:8081');
+    const socket = new WebSocket('wss://chat.da0xlin.xyz/socket');
     socketRef.current = socket;
 
     socket.onmessage = (event) => {

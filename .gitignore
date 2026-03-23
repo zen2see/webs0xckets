@@ -41,4 +41,5 @@ yarn-error.log*
 next-env.d.ts
 
 # misc
-webs0xckets.MD 
+webs0xckets.MD
+.pnpm-store/ 

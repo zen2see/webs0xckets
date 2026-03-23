@@ -13,8 +13,8 @@ interface SocketMessage {
     timestamp?: string;
 }
 
-console.log("SERVER IS STARTING 127.0.0.1:8081---"); 
-const wss = new WebSocketServer({ port: 8081 });
+console.log("SERVER IS STARTING ---"); 
+const wss = new WebSocketServer({ port: 8081, host:'0.0.0.0' });
 
 const messageHistory: SocketMessage[] = [];
 const MAX_HISTORY = 50;
