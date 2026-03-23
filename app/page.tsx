@@ -71,8 +71,8 @@
 import { useEffect, useState, useRef } from 'react';
 
 interface Message {
-  type: 'chat' | 'private' | 'userList' | 'error' | 'history';
-  content: string | string[];
+  type: 'chat' | 'private' | 'userList' | 'error' | 'history' | 'auth';
+  content: any;
   sender?: string;
   timestamp?: string;
 }
@@ -85,16 +85,35 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Connect to the SEPARATE WebSocket server on port 8081
-    const socket = new WebSocket('wss://chat.da0xlin.xyz/socket');
+    // 1. Handle Session Identity
+    let sessionId = localStorage.getItem('chat_session_id');
+    if (!sessionId) {
+      sessionId = 'sess-' + Math.random().toString(36).substring(2, 9);
+      localStorage.setItem('chat_session_id', sessionId);
+    }
+
+    // 2. Connect to your server (Use WSS if you have SSL, otherwise WS)
+    // Note: I am using the port 8081 directly as per your server.ts
+    const socket = new WebSocket('wss://chat.da0xlin.xyz:8081');
     socketRef.current = socket;
+
+    socket.onopen = () => {
+      console.log('✅ Connected to Chat Server');
+      // 3. Send Auth message so SQLite can restore your name
+      socket.send(JSON.stringify({
+        type: 'auth',
+        content: sessionId
+      }));
+    };
 
     socket.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
+        const data: Message = JSON.parse(event.data);
 
         if (data.type === 'userList') {
-          setUsers(data.content);
+          setUsers(data.content as string[]);
+        } else if (data.type === 'history') {
+          setMessages(data.content as Message[]);
         } else {
           setMessages((prev) => [...prev, data]);
         }
@@ -102,11 +121,15 @@ export default function ChatPage() {
         console.error("Failed to parse message:", event.data);
       }
     };
-    socket.onclose = () => console.log("Disconnected from Chat Server");
-    return () => socket.close();
+
+    socket.onclose = () => console.log("❌ Disconnected from Chat Server");
+
+    return () => {
+      socket.close();
+    };
   }, []);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll logic
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -117,59 +140,54 @@ export default function ChatPage() {
 
     let payload: any;
 
-    // Command Parser for Private Messages
     if (input.startsWith('/msg ')) {
       const parts = input.split(' ');
-      const target = parts[1]; // The username
-      const content = parts.slice(2).join(' '); // The actual message
-
-      payload = {
-        type: 'private',
-        target: target,
-        content: content,
-      };
+      const target = parts[1];
+      const content = parts.slice(2).join(' ');
+      payload = { type: 'private', target, content };
     } else {
-      // Default Broadcast
-      payload = {
-        type: 'chat',
-        content: input,
-      };
+      payload = { type: 'chat', content: input };
     }
+
     socketRef.current.send(JSON.stringify(payload));
     setInput('');
   };
+
   return (
     <div className="flex h-screen bg-gray-900 text-white p-4 gap-4 font-sans">
-      {/* Sidebar: Online Users */}
-      <div className="w-64 bg-gray-800 p-4 rounded-lg shadow-xl border border-gray-700">
+      {/* Sidebar */}
+      <div className="w-64 bg-gray-800 p-4 rounded-lg shadow-xl border border-gray-700 overflow-y-auto">
         <h2 className="text-xl font-bold mb-4 text-blue-400 border-b border-gray-700 pb-2">
           Online ({users.length})
         </h2>
         <div className="space-y-2">
-          {users.map((user) => (
-            <div key={user} className="flex items-center gap-2 text-sm text-gray-300">
+          {users.map((user, idx) => (
+            <div key={idx} className="flex items-center gap-2 text-sm text-gray-300">
               <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
               {user}
             </div>
           ))}
         </div>
       </div>
-      {/* Main Chat Area */}
+
+      {/* Main Chat */}
       <div className="flex-1 flex flex-col bg-gray-800 rounded-lg shadow-xl border border-gray-700 overflow-hidden">
-        {/* Message List */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.map((msg, i) => (
             <div
               key={i}
               className={`max-w-[80%] p-3 rounded-lg ${
-                msg.type === 'private' 
-                  ? 'bg-purple-900/40 border border-purple-500/50' 
+                msg.type === 'private'
+                  ? 'bg-purple-900/40 border border-purple-500/50'
                   : 'bg-gray-700'
               }`}
             >
-              <div className="text-xs font-bold text-blue-400 mb-1">
-                {msg.type === 'private' ? '🔒 PRIVATE FROM ' : ''}
-                {msg.sender}
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs font-bold text-blue-400">
+                  {msg.type === 'private' ? '🔒 PRIVATE FROM ' : ''}
+                  {msg.sender || 'System'}
+                </span>
+                <span className="text-[10px] text-gray-500">{msg.timestamp}</span>
               </div>
               <div className="text-sm">{msg.content as string}</div>
             </div>
@@ -177,7 +195,6 @@ export default function ChatPage() {
           <div ref={scrollRef} />
         </div>
 
-        {/* Input Bar */}
         <form onSubmit={handleSend} className="p-4 bg-gray-900 flex gap-2">
           <input
             className="flex-1 bg-gray-800 border border-gray-700 rounded-md px-4 py-2 focus:outline-none focus:border-blue-500"
@@ -193,3 +210,4 @@ export default function ChatPage() {
     </div>
   );
 }
+
