@@ -85,16 +85,17 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // 1. Handle Session Identity
-    let sessionId = localStorage.getItem('chat_session_id');
-    if (!sessionId) {
-      sessionId = 'sess-' + Math.random().toString(36).substring(2, 9);
+    let reconnectTimer: NodeJS.Timeout;
+
+    const connect () => {
+      //1. Session Id
+      let sessionId = localStorage.getItem('chat_session_id');
+      if (!sessionId) {
+      sessionId = 'sees-' + Math.random().toString(36).substring(2,9);
       localStorage.setItem('chat_session_id', sessionId);
     }
-
-    // 2. Connect to your server (Use WSS if you have SSL, otherwise WS)
-    // Note: I am using the port 8081 directly as per your server.ts
-    const socket = new WebSocket('wss://chat.da0xlin.xyz:8081');
+    // 2. Connect via Nginx Proxy (No port 8081, use /socket)
+    const socket = new WebSocket('wss://chat.da0xlin.xyz/socket');
     socketRef.current = socket;
 
     socket.onopen = () => {
@@ -122,29 +123,37 @@ export default function ChatPage() {
       }
     };
 
-    socket.onclose = () => console.log("❌ Disconnected from Chat Server");
-
-    return () => {
-      socket.close();
+    socket.onclose = () => {
+       console.log("\u{274c} Disconnected from Chat Server, Reconnecting in 3s...");
+       // 3. Auto-Reconnect Logic
+       reconnectTimer = setTimeout(connect, 3000);
     };
-  }, []);
+  };
 
-  // Auto-scroll logic
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  connect();
+ 
+  return () => {
+    clearTimeout(reconnectTimer);
+    socketRef.current?.close();
+  }
+}, []);
 
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || !socketRef.current) return;
+// Auto-scroll logic
+useEffect(() => {
+  scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+}, [messages]);
 
-    let payload: any;
+const handleSend = (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!input.trim() || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN || socketRef.current.readyState !== 1)
+      console.error("Socket is closed or not read");
+      return;
+  }
 
-    if (input.startsWith('/msg ')) {
+  let payload: any;
+  if (input.startsWith('/msg ')) {
       const parts = input.split(' ');
-      const target = parts[1];
-      const content = parts.slice(2).join(' ');
-      payload = { type: 'private', target, content };
+      payload = { type: 'private', target: parts[1], content: parts.slice(2).join(' ') };
     } else {
       payload = { type: 'chat', content: input };
     }
