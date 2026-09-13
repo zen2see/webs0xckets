@@ -1,77 +1,9 @@
-// 'use client';
-// import { useEffect, useState, useRef } from 'react';
-
-// export default function ChatPage() {
-//     const [messages, setMessages] = useState<any[]>([]);
-//     const [input, setInput] = useState('');
-//     const [users, setUsers] = useState<string[]>([]);
-//     const socketRef = useRef<WebSocket | null>(null);
-
-//     useEffect(() => {
-//         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-//         const socket = new WebSocket(`${protocol}//${window.location.host}`);
-//         socketRef.current = socket;
-
-//         socket.onmessage = (event) => {
-//             const data = JSON.parse(event.data);
-//             if (data.type === 'userList') setUsers(data.content);
-//             else setMessages((prev) => [...prev, data]);
-//         };
-
-//         return () => socket.close();
-//     }, []);
-
-//     const sendMessage = (e: React.FormEvent) => {
-//         e.preventDefault();
-//         if (!input.trim() || !socketRef.current) return;
-
-//         let payload: any = { type: 'chat', content: input };
-
-//         if (input.startsWith('/msg ')) {
-//             const parts = input.split(' ');
-//             payload = { type: 'private', target: parts[1], content: parts.slice(2).join(' ') };
-//         }
-
-//         socketRef.current.send(JSON.stringify(payload));
-//         setInput('');
-//     };
-
-//     return (
-//         <div className="flex h-screen bg-gray-100 p-4 gap-4">
-//             {/* Sidebar */}
-//             <div className="w-1/4 bg-white p-4 rounded shadow">
-//                 <h2 className="font-bold border-b mb-2">Online Users</h2>
-//                 {users.map(u => <div key={u} className="text-green-600 text-sm">● {u}</div>)}
-//             </div>
-
-//             {/* Chat Area */}
-//             <div className="flex-1 flex flex-col bg-white rounded shadow p-4">
-//                 <div className="flex-1 overflow-y-auto mb-4 space-y-2">
-//                     {messages.map((m, i) => (
-//                         <div key={i} className={`p-2 rounded ${m.type === 'private' ? 'bg-purple-100' : 'bg-gray-50'}`}>
-//                             <span className="font-bold">{m.sender}: </span>{m.content}
-//                         </div>
-//                     ))}
-//                 </div>
-//                 <form onSubmit={sendMessage} className="flex gap-2">
-//                     <input 
-//                         className="flex-1 border p-2 rounded" 
-//                         value={input} 
-//                         onChange={(e) => setInput(e.target.value)}
-//                         placeholder="Type message or /msg User-ID message..."
-//                     />
-//                     <button className="bg-blue-500 text-white px-4 py-2 rounded">Send</button>
-//                 </form>
-//             </div>
-//         </div>
-//     );
-// }
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
 
 interface Message {
-  type: 'chat' | 'private' | 'userList' | 'error' | 'history' | 'auth';
+  type: 'chat' | 'private' | 'userList' | 'error' | 'history' | 'auth' | 'yourName';
   content: any;
   sender?: string;
   timestamp?: string;
@@ -81,81 +13,80 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [users, setUsers] = useState<string[]>([]);
+  const [myUsername, setMyUsername] = useState<string>(''); 
   const socketRef = useRef<WebSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let reconnectTimer: NodeJS.Timeout;
 
-    const connect () => {
-      //1. Session Id
+    const connect = () => {
       let sessionId = localStorage.getItem('chat_session_id');
       if (!sessionId) {
-      sessionId = 'sees-' + Math.random().toString(36).substring(2,9);
-      localStorage.setItem('chat_session_id', sessionId);
-    }
-    // 2. Connect via Nginx Proxy (No port 8081, use /socket)
-    const socket = new WebSocket('wss://chat.da0xlin.xyz/socket');
-    socketRef.current = socket;
-
-    socket.onopen = () => {
-      console.log('✅ Connected to Chat Server');
-      // 3. Send Auth message so SQLite can restore your name
-      socket.send(JSON.stringify({
-        type: 'auth',
-        content: sessionId
-      }));
-    };
-
-    socket.onmessage = (event) => {
-      try {
-        const data: Message = JSON.parse(event.data);
-
-        if (data.type === 'userList') {
-          setUsers(data.content as string[]);
-        } else if (data.type === 'history') {
-          setMessages(data.content as Message[]);
-        } else {
-          setMessages((prev) => [...prev, data]);
-        }
-      } catch (e) {
-        console.error("Failed to parse message:", event.data);
+        sessionId = 'sees-' + Math.random().toString(36).substring(2,9);
+        localStorage.setItem('chat_session_id', sessionId);
       }
+
+      const socket = new WebSocket('wss://chat.da0xlin.xyz/socket');
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        console.log('✅ Connected to Chat Server');
+        socket.send(JSON.stringify({
+          type: 'auth',
+          content: sessionId
+        }));
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data: Message = JSON.parse(event.data);
+
+          if (data.type === 'yourName') {
+            setMyUsername(data.content as string);
+          } else if (data.type === 'userList') {
+            setUsers(data.content as string[]);
+          } else if (data.type === 'history') {
+            setMessages(data.content as Message[]);
+          } else {
+            setMessages((prev) => [...prev, data]);
+          }
+        } catch (e) {
+          console.error("Failed to parse message:", event.data);
+        }
+      };
+
+      socket.onclose = () => {
+         console.log("❌ Disconnected from Chat Server, Reconnecting in 3s...");
+         reconnectTimer = setTimeout(connect, 3000);
+      };
     };
 
-    socket.onclose = () => {
-       console.log("\u{274c} Disconnected from Chat Server, Reconnecting in 3s...");
-       // 3. Auto-Reconnect Logic
-       reconnectTimer = setTimeout(connect, 3000);
-    };
-  };
-
-  connect();
+    connect();
  
-  return () => {
-    clearTimeout(reconnectTimer);
-    socketRef.current?.close();
-  }
-}, []);
+    return () => {
+      clearTimeout(reconnectTimer);
+      socketRef.current?.close();
+    }
+  }, []);
 
-// Auto-scroll logic
-useEffect(() => {
-  scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-}, [messages]);
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
-const handleSend = (e: React.FormEvent) => {
-  e.preventDefault();
-  if (!input.trim() || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN || socketRef.current.readyState !== 1)
-      console.error("Socket is closed or not read");
-      return;
-  }
+  const handleSend = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+        console.error("Socket is closed or not ready");
+        return;
+    }
 
-  let payload: any;
-  if (input.startsWith('/msg ')) {
-      const parts = input.split(' ');
-      payload = { type: 'private', target: parts[1], content: parts.slice(2).join(' ') };
+    let payload: any;
+    if (input.startsWith('/msg ')) {
+        const parts = input.split(' ');
+        payload = { type: 'private', target: parts[1], content: parts.slice(2).join(' ') };
     } else {
-      payload = { type: 'chat', content: input };
+        payload = { type: 'chat', content: input };
     }
 
     socketRef.current.send(JSON.stringify(payload));
@@ -170,12 +101,15 @@ const handleSend = (e: React.FormEvent) => {
           Online ({users.length})
         </h2>
         <div className="space-y-2">
-          {users.map((user, idx) => (
-            <div key={idx} className="flex items-center gap-2 text-sm text-gray-300">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-              {user}
-            </div>
-          ))}
+          {users.map((user, idx) => {
+            const isMe = user === myUsername;
+            return (
+              <div key={idx} className={`flex items-center gap-2 text-sm ${isMe ? 'font-bold text-blue-400 scale-102' : 'text-gray-300'}`}>
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                <span>{user} {isMe && <span className="text-xs text-blue-500 font-normal ml-1">(You)</span>}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -194,7 +128,7 @@ const handleSend = (e: React.FormEvent) => {
               <div className="flex justify-between items-center mb-1">
                 <span className="text-xs font-bold text-blue-400">
                   {msg.type === 'private' ? '🔒 PRIVATE FROM ' : ''}
-                  {msg.sender || 'System'}
+                  {msg.sender === myUsername ? `${msg.sender} (You)` : (msg.sender || 'System')}
                 </span>
                 <span className="text-[10px] text-gray-500">{msg.timestamp}</span>
               </div>
@@ -219,4 +153,3 @@ const handleSend = (e: React.FormEvent) => {
     </div>
   );
 }
-
